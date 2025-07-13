@@ -33,6 +33,17 @@ async function run() {
     const db = client.db("matrimony");
     const usersCollection = db.collection("users");
 
+    // GET user role
+    app.get("/users/role/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await usersCollection.findOne({ email });
+      if (user) {
+        return res.json({ role: user.role });
+      } else {
+        return res.status(404).json({ role: null });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
