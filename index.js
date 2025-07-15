@@ -1,6 +1,7 @@
 require("dotenv").config(); // 🔼 Must be first
 const express = require("express");
 const cors = require("cors");
+const { ObjectId } = require("mongodb");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
 const app = express();
@@ -124,20 +125,27 @@ async function run() {
         biodataId: newId,
         createdAt: new Date(),
         isPublished: true,
+        updatedAt: new Date(),
       });
 
       res.send({ success: true, biodataId: newId });
     });
 
     // patch
-    app.patch("/biodata/:email", async (req, res) => {
-      const { email } = req.params;
-      const update = req.body;
+    app.patch("/biodata/:id", async (req, res) => {
+      const { id } = req.params;
+      const { _id, ...update } = req.body;
 
-      const result = await biodataCollection.updateOne(
-        { email },
-        { $set: { ...update, updatedAt: new Date() } }
-      );
+      const filter = { _id: new ObjectId(id) };
+
+      const updateData = {
+        $set: {
+          ...update,
+          updatedAt: new Date(),
+        },
+      };
+      // console.log(updateData);
+      const result = await biodataCollection.updateOne(filter, updateData);
 
       res.send({ success: true, modifiedCount: result.modifiedCount });
     });
