@@ -8,15 +8,35 @@ const app = express();
 const port = process.env.PORT || 5000;
 const uri = process.env.MONGO_URI;
 
-if (!uri) {
-  console.error(" MONGO_URI is not defined in .env file!");
-  process.exit(1);
-}
+const admin = require("firebase-admin");
+var serviceAccount = require("./firebase-key.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 // middleware
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(cors());
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Unauthorized access" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    // console.log("✅ Decoded Token:", decoded);
+    req.decoded = decoded;
+    next();
+  } catch (error) {
+    console.error("❌ Firebase token verification failed:", error);
+    return res.status(403).send({ message: "Forbidden access", error });
+  }
+};
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -47,7 +67,7 @@ async function run() {
     });
 
     // get bio data
-    app.get("/biodata", async (req, res) => {
+    app.get("/biodata", verifyToken, async (req, res) => {
       try {
         const email = req.query.email;
 
@@ -103,7 +123,7 @@ async function run() {
     });
 
     // post bio data
-    app.post("/biodata", async (req, res) => {
+    app.post("/biodata", verifyToken, async (req, res) => {
       const { contactEmail } = req.body;
 
       // 1. Check if user already has biodata
@@ -132,7 +152,7 @@ async function run() {
     });
 
     // patch
-    app.patch("/biodata/:id", async (req, res) => {
+    app.patch("/biodata/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const { _id, ...update } = req.body;
 
