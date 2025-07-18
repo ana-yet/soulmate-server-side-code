@@ -171,6 +171,17 @@ async function run() {
       }
     });
 
+    // Get: already favourites or not
+    app.get("/favourites/check/:email/:biodataId", async (req, res) => {
+      const { email, biodataId } = req.params;
+
+      const result = await favouritesCollection.findOne({
+        userEmail: email,
+        biodataId,
+      });
+      res.json({ isFavourite: !!result });
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
@@ -329,6 +340,29 @@ async function run() {
         success: false,
         message: "Failed to request premium",
       });
+    });
+
+    // DELETE: favourites
+    app.delete("/favourites", async (req, res) => {
+      try {
+        const { userEmail, biodataId } = req.query;
+
+        const result = await favouritesCollection.deleteOne({
+          userEmail,
+          biodataId,
+        });
+
+        if (result.deletedCount > 0) {
+          res.json({ success: true, message: "Removed from favourites" });
+        } else {
+          res
+            .status(404)
+            .json({ success: false, message: "Favourite not found" });
+        }
+      } catch (error) {
+        console.error("Error removing favourite:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+      }
     });
 
     // Send a ping to confirm a successful connection
