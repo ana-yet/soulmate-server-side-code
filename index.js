@@ -55,13 +55,17 @@ async function run() {
     const db = client.db("matrimony");
     const usersCollection = db.collection("users");
     const biodataCollection = db.collection("biodata");
+    const favouritesCollection = db.collection("favourites");
 
     // GET user info
     app.get("/users/info/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       if (user) {
-        return res.json({ role: user.role });
+        return res.json({
+          role: user.role,
+          subscriptionType: user.subscriptionType,
+        });
       } else {
         return res.status(404).json({ role: null });
       }
@@ -119,7 +123,37 @@ async function run() {
       }
     });
 
-    // GET /biodata/premium?sort=asc || desc
+    // get similar bio data
+    app.get("/biodata/similar/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const currentBiodata = await biodataCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!currentBiodata) {
+          return res.status(404).json({ message: "Current biodata not found" });
+        }
+
+        const query = {
+          _id: { $ne: new ObjectId(id) },
+          biodataType: currentBiodata.biodataType,
+        };
+
+        const similarBiodatas = await biodataCollection
+          .find(query)
+          .limit(4)
+          .toArray();
+
+        res.status(200).json({ success: true, data: similarBiodatas });
+      } catch (error) {
+        console.error(" Error fetching similar biodata:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET premium bio data for home page /bio data/premium?sort=asc || desc
     app.get("/biodata/premium", async (req, res) => {
       try {
         const sortDirection = req.query.sort === "desc" ? -1 : 1;
