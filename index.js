@@ -232,6 +232,30 @@ async function run() {
       res.send({ success: true, biodataId: newId });
     });
 
+    // post favorurites
+    app.post("/favourites", async (req, res) => {
+      const { userEmail, biodataId } = req.body;
+
+      // Check if already favorites
+      const alreadyExists = await favouritesCollection.findOne({
+        userEmail,
+        biodataId,
+      });
+      if (alreadyExists) {
+        return res
+          .status(400)
+          .json({ message: "Already added to favourites." });
+      }
+
+      const result = await favouritesCollection.insertOne({
+        userEmail,
+        biodataId,
+        favouritedAt: new Date(),
+      });
+
+      res.status(200).json({ success: true, data: result });
+    });
+
     // patch
     app.patch("/biodata/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
