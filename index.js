@@ -170,6 +170,32 @@ async function run() {
       res.send({ success: true, modifiedCount: result.modifiedCount });
     });
 
+    app.patch("/request-premium/:id", async (req, res) => {
+      const { id } = req.params;
+
+      const filter = { _id: new ObjectId(id) };
+
+      const update = {
+        $set: {
+          bioDataStatus: "pending",
+          updatedAt: new Date(),
+        },
+      };
+
+      const result = await biodataCollection.updateOne(filter, update);
+
+      if (result.modifiedCount > 0) {
+        return res.json({
+          success: true,
+          message: "Request sent for premium approval",
+        });
+      }
+
+      res
+        .status(400)
+        .json({ success: false, message: "Failed to request premium" });
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
