@@ -10,6 +10,7 @@ const uri = process.env.MONGO_URI;
 
 const admin = require("firebase-admin");
 var serviceAccount = require("./firebase-key.json");
+const { isValidObjectId } = require("mongoose");
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -55,8 +56,8 @@ async function run() {
     const usersCollection = db.collection("users");
     const biodataCollection = db.collection("biodata");
 
-    // GET user role
-    app.get("/users/role/:email", async (req, res) => {
+    // GET user info
+    app.get("/users/info/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       if (user) {
@@ -66,7 +67,7 @@ async function run() {
       }
     });
 
-    // get bio data
+    // get user bio data
     app.get("/biodata", verifyToken, async (req, res) => {
       try {
         const email = req.query.email;
@@ -95,10 +96,55 @@ async function run() {
       }
     });
 
+    // get details bio data
+    app.get("/singleBiodata/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const filter = { _id: new ObjectId(id) };
+        if (!ObjectId.isValid(id)) {
+          console.log("you are not");
+        } else "i am okay";
+
+        const result = await biodataCollection.findOne(filter);
+
+        if (!result) {
+          return res.status(404).json({ message: "Biodata not found" });
+        }
+
+        res.status(200).json({ success: true, data: result });
+      } catch (error) {
+        console.error("❌ Error fetching biodata:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET /biodata/premium?sort=asc || desc
+    app.get("/biodata/premium", async (req, res) => {
+      try {
+        const sortDirection = req.query.sort === "desc" ? -1 : 1;
+
+        const premiumBiodata = await biodataCollection
+          .find({ biodataStatus: "premium" })
+          .sort({ age: sortDirection })
+          .limit(8)
+          .toArray();
+
+        res.json({ success: true, data: premiumBiodata });
+      } catch (error) {
+        console.error("Error fetching premium biodata:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
-        const userInfo = req.body;
+        const data = req.body;
+        const userInfo = {
+          ...data,
+          updatedAt: new Date(),
+        };
 
         const existingUser = await usersCollection.findOne({
           email: userInfo.email,
@@ -146,6 +192,7 @@ async function run() {
         createdAt: new Date(),
         isPublished: true,
         updatedAt: new Date(),
+        bioDataStatus: "free",
       });
 
       res.send({ success: true, biodataId: newId });
@@ -164,7 +211,7 @@ async function run() {
           updatedAt: new Date(),
         },
       };
-      // console.log(updateData);
+
       const result = await biodataCollection.updateOne(filter, updateData);
 
       res.send({ success: true, modifiedCount: result.modifiedCount });
@@ -173,27 +220,57 @@ async function run() {
     app.patch("/request-premium/:id", async (req, res) => {
       const { id } = req.params;
 
-      const filter = { _id: new ObjectId(id) };
-
-      const update = {
+      // Step 1: Update Biodata Collection
+      const biodataFilter = { _id: new ObjectId(id) };
+      const biodataUpdate = {
         $set: {
           bioDataStatus: "pending",
           updatedAt: new Date(),
         },
       };
 
-      const result = await biodataCollection.updateOne(filter, update);
+      const biodataResult = await biodataCollection.updateOne(
+        biodataFilter,
+        biodataUpdate
+      );
 
-      if (result.modifiedCount > 0) {
+      // Step 2: Get the biodata to retrieve the email
+      const biodata = await biodataCollection.findOne(biodataFilter);
+      const userEmail = biodata?.contactEmail;
+
+      if (!userEmail) {
+        return res.status(404).json({
+          success: false,
+          message: "User email not found in biodata",
+        });
+      }
+
+      // Step 3: Update User Collection
+      const userFilter = { email: userEmail };
+      const userUpdate = {
+        $set: {
+          subscriptionType: "pending",
+          updatedAt: new Date(),
+        },
+      };
+
+      const userResult = await usersCollection.updateOne(
+        userFilter,
+        userUpdate
+      );
+
+      // Step 4: Final Response
+      if (biodataResult.modifiedCount > 0 && userResult.modifiedCount > 0) {
         return res.json({
           success: true,
           message: "Request sent for premium approval",
         });
       }
 
-      res
-        .status(400)
-        .json({ success: false, message: "Failed to request premium" });
+      res.status(400).json({
+        success: false,
+        message: "Failed to request premium",
+      });
     });
 
     // Send a ping to confirm a successful connection
