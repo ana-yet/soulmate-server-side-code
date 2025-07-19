@@ -8,6 +8,8 @@ const app = express();
 const port = process.env.PORT || 5000;
 const uri = process.env.MONGO_URI;
 
+const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
+
 const admin = require("firebase-admin");
 var serviceAccount = require("./firebase-key.json");
 const { isValidObjectId } = require("mongoose");
@@ -56,6 +58,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const biodataCollection = db.collection("biodata");
     const favouritesCollection = db.collection("favourites");
+    const biodataRequestCollection = db.collection("biodataRequest");
 
     // GET user info
     app.get("/users/info/:email", async (req, res) => {
@@ -216,7 +219,7 @@ async function run() {
           biodataType,
           division,
           page = 1,
-          limit = 20,
+          limit = 9,
         } = req.query;
 
         const query = {};
@@ -280,6 +283,18 @@ async function run() {
         console.error("Error in biodata search/filter:", error);
         res.status(500).json({ success: false, message: "Server error" });
       }
+    });
+
+    // Get: Bio data request check is is approved or not
+    app.get("/biodata-requests/check", async (req, res) => {
+      const { email, biodataId } = req.query;
+
+      const request = await biodataRequestCollection.findOne({
+        requesterEmail: email,
+        requestedBiodataId: biodataId,
+      });
+
+      res.json({ exists: !!request });
     });
 
     // post request
@@ -365,6 +380,47 @@ async function run() {
       });
 
       res.status(200).json({ success: true, data: result });
+    });
+
+    // post the bio data request
+    app.post("/biodata-requests", async (req, res) => {
+      const { requesterEmail, requestedBiodataId } = req.body;
+
+      if (!requesterEmail || !requestedBiodataId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const alreadyExists = await biodataRequestCollection.findOne({
+        requesterEmail,
+        requestedBiodataId,
+      });
+
+      if (alreadyExists) {
+        return res
+          .status(409)
+          .json({ message: "You have already requested this biodata" });
+      }
+
+      const result = await biodataRequestCollection.insertOne({
+        requesterEmail,
+        requestedBiodataId,
+        status: "pending",
+        requestedAt: new Date(),
+      });
+
+      res.status(201).json({ success: true, message: "Request sent", result });
+    });
+
+    // post billing info
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = price * 100;
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "usd",
+      });
+      res.json({ clientSecret: paymentIntent.client_secret });
     });
 
     // patch
