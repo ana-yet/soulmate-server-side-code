@@ -171,7 +171,7 @@ async function run() {
       }
     });
 
-    // Get: already favourites or not
+    // Get: already favourites or not for details page
     app.get("/favourites/check/:email/:biodataId", async (req, res) => {
       const { email, biodataId } = req.params;
 
@@ -180,6 +180,30 @@ async function run() {
         biodataId,
       });
       res.json({ isFavourite: !!result });
+    });
+
+    // Get: the all favourites data
+    app.get("/favourites/:email", async (req, res) => {
+      const { email } = req.params;
+
+      try {
+        // Step 1: Find favourite biodata IDs for this user
+        const favourites = await favouritesCollection
+          .find({ userEmail: email })
+          .toArray();
+
+        const biodataIds = favourites.map((fav) => new ObjectId(fav.biodataId));
+
+        // Step 2: Get the biodata details from biodataCollection
+        const biodatas = await biodataCollection
+          .find({ _id: { $in: biodataIds } })
+          .toArray();
+
+        res.send({ success: true, data: biodatas });
+      } catch (error) {
+        console.error("Error fetching favourites:", error);
+        res.status(500).send({ success: false, message: "Server Error" });
+      }
     });
 
     // post request
