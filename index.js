@@ -206,6 +206,82 @@ async function run() {
       }
     });
 
+    // get: all bio data by filtering
+    app.get("/biodatas", async (req, res) => {
+      try {
+        const {
+          search = "",
+          minAge,
+          maxAge,
+          biodataType,
+          division,
+          page = 1,
+          limit = 20,
+        } = req.query;
+
+        const query = {};
+
+        //  Search by name, occupation, or division
+        if (search) {
+          query.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { occupation: { $regex: search, $options: "i" } },
+            { permanentDivision: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        //  Age range filter
+        if (minAge && maxAge) {
+          query.age = {
+            $gte: parseInt(minAge),
+            $lte: parseInt(maxAge),
+          };
+        }
+
+        //  Gender / Biodata Type filter
+        if (biodataType) {
+          query.biodataType = biodataType;
+        }
+
+        //  Division filter
+        if (division) {
+          query.permanentDivision = division;
+        }
+
+        // Pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        if (!query) {
+          const res = await biodataCollection.find().toArray();
+          res.send({
+            success: true,
+            data: biodatas,
+            total,
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(total / parseInt(limit)),
+          });
+        }
+
+        const total = await biodataCollection.countDocuments(query);
+        const biodatas = await biodataCollection
+          .find(query)
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.send({
+          success: true,
+          data: biodatas,
+          total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Error in biodata search/filter:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
