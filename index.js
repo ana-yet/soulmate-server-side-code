@@ -285,16 +285,62 @@ async function run() {
       }
     });
 
-    // Get: Bio data request check is is approved or not
-    app.get("/biodata-requests/check", async (req, res) => {
-      const { email, biodataId } = req.query;
+    // Get: my contact request data
+    app.get("/my-contact-requests", async (req, res) => {
+      try {
+        const userEmail = req.query.email;
 
-      const request = await biodataRequestCollection.findOne({
-        requesterEmail: email,
-        requestedBiodataId: biodataId,
-      });
+        if (!userEmail) {
+          return res.status(400).json({ message: "Missing email in body" });
+        }
 
-      res.json({ exists: !!request });
+        const requests = await biodataRequestCollection
+          .aggregate([
+            {
+              $match: { requesterEmail: userEmail },
+            },
+            {
+              $lookup: {
+                from: "biodata",
+                localField: "requestedBiodataId",
+                foreignField: "biodataId",
+                as: "biodataDetails",
+              },
+            },
+            {
+              $unwind: "$biodataDetails",
+            },
+            {
+              $project: {
+                _id: 1,
+                biodataId: "$requestedBiodataId",
+                status: 1,
+                requestedAt: 1,
+                name: "$biodataDetails.name",
+                mobile: {
+                  $cond: [
+                    { $eq: ["$status", "approved"] },
+                    "$biodataDetails.mobile",
+                    null,
+                  ],
+                },
+                email: {
+                  $cond: [
+                    { $eq: ["$status", "approved"] },
+                    "$biodataDetails.contactEmail",
+                    null,
+                  ],
+                },
+              },
+            },
+          ])
+          .toArray();
+
+        res.status(200).json(requests);
+      } catch (error) {
+        console.error("Error fetching contact requests:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
     });
 
     // post request
@@ -518,6 +564,28 @@ async function run() {
       } catch (error) {
         console.error("Error removing favourite:", error);
         res.status(500).json({ success: false, message: "Server error" });
+      }
+    });
+
+    // DELETE : my contact request
+    app.delete("/delete-contact-requests/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await biodataRequestCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: "Request not found" });
+        }
+
+        res
+          .status(200)
+          .json({ success: true, message: "Deleted successfully" });
+      } catch (error) {
+        console.error("Error deleting contact request:", error);
+        res.status(500).json({ message: "Server error" });
       }
     });
 
