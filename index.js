@@ -344,6 +344,22 @@ async function run() {
       }
     });
 
+    // ADMIN: get: /users?search=name
+    app.get("/users", async (req, res) => {
+      try {
+        const search = req.query.search || "";
+        const query = {
+          name: { $regex: search, $options: "i" },
+        };
+
+        const users = await usersCollection.find(query).toArray();
+        res.status(200).json(users);
+      } catch (err) {
+        console.error("Failed to fetch users:", err);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
