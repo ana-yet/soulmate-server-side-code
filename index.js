@@ -616,6 +616,29 @@ async function run() {
       });
     });
 
+    // ADMIN: make admin  patch: users/admin/:id
+    app.patch("/users/admin/:id", async (req, res) => {
+      const userId = req.params.id;
+
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { role: "admin" } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "User not found or already admin" });
+        }
+
+        res.status(200).json({ message: "User promoted to admin" });
+      } catch (error) {
+        console.error("Admin update error:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
     // DELETE: favourites
     app.delete("/favourites", async (req, res) => {
       try {
