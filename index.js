@@ -491,15 +491,16 @@ async function run() {
 
     // post the bio data request
     app.post("/biodata-requests", async (req, res) => {
-      const { requesterEmail, requestedBiodataId } = req.body;
+      const { requesterEmail, requestedBiodataId, requesterName } = req.body;
 
-      if (!requesterEmail || !requestedBiodataId) {
+      if (!requesterEmail || !requestedBiodataId || !requesterName) {
         return res.status(400).json({ message: "Missing required fields" });
       }
 
       const alreadyExists = await biodataRequestCollection.findOne({
         requesterEmail,
         requestedBiodataId,
+        requesterName,
       });
 
       if (alreadyExists) {
@@ -511,6 +512,7 @@ async function run() {
       const result = await biodataRequestCollection.insertOne({
         requesterEmail,
         requestedBiodataId,
+        requesterName,
         status: "pending",
         requestedAt: new Date(),
       });
