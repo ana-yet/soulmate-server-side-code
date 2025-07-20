@@ -391,7 +391,19 @@ async function run() {
         res.status(500).json({ message: "Server Error" });
       }
     });
-
+    // Get the pending contact requests
+    app.get("/pending-contact-requests", async (req, res) => {
+      try {
+        const requests = await biodataRequestCollection
+          .find({ status: "pending" })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.status(200).json({ success: true, data: requests });
+      } catch (error) {
+        console.error("Failed to fetch contact requests:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
     // post request
     app.post("/users", async (req, res) => {
       try {
