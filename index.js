@@ -59,6 +59,7 @@ async function run() {
     const biodataCollection = db.collection("biodata");
     const favouritesCollection = db.collection("favourites");
     const biodataRequestCollection = db.collection("biodataRequest");
+    const successStoriesCollection = db.collection("successStories");
 
     // GET user info
     app.get("/users/info/:email", async (req, res) => {
@@ -469,6 +470,61 @@ async function run() {
       res.json({ clientSecret: paymentIntent.client_secret });
     });
 
+    //POST : success story
+    app.post("/success-stories", async (req, res) => {
+      try {
+        const {
+          selfBiodataId,
+          partnerBiodataId,
+          coupleImage,
+          successStory,
+          marriageDate,
+          shareOnHomePage = false,
+        } = req.body;
+
+        if (
+          !selfBiodataId ||
+          !partnerBiodataId ||
+          !coupleImage ||
+          !successStory ||
+          !marriageDate
+        ) {
+          return res.status(400).json({ message: "All fields are required." });
+        }
+
+        const existingStory = await successStoriesCollection.findOne({
+          selfBiodataId: selfBiodataId,
+        });
+
+        if (existingStory) {
+          return res
+            .status(409)
+            .json({ message: "Success story already submitted." });
+        }
+
+        const newStory = {
+          selfBiodataId: parseInt(selfBiodataId),
+          partnerBiodataId: parseInt(partnerBiodataId),
+          coupleImage,
+          successStory,
+          shareOnHomePage,
+          marriageDate,
+          status: "pending",
+          createdAt: new Date(),
+        };
+
+        const result = await successStoriesCollection.insertOne(newStory);
+
+        res.status(201).json({
+          success: true,
+          message: "Success story submitted for review.",
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Error submitting success story:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
     // patch
     app.patch("/biodata/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
