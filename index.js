@@ -672,6 +672,30 @@ async function run() {
       }
     });
 
+    // [admin] /approve-premium/:biodataId request
+    app.patch(
+      "/approve-premium/:biodataId",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { biodataId } = req.params;
+        try {
+          const result = await biodataCollection.updateOne(
+            { _id: new ObjectId(biodataId) },
+            { $set: { bioDataStatus: "premium" } }
+          );
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "Biodata not found or already premium" });
+          }
+          res.status(200).json({ message: "Biodata approved for premium" });
+        } catch (err) {
+          res.status(500).json({ message: "Failed to update biodata" });
+        }
+      }
+    );
+
     // DELETE: favourites
     app.delete("/favourites", async (req, res) => {
       try {
