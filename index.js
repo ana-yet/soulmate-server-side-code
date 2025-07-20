@@ -380,21 +380,17 @@ async function run() {
       }
     });
     // get the premium bio data request
-    app.get(
-      "/pending-premium-biodatas",
-      verifyToken,
-      verifyAdmin,
-      async (req, res) => {
-        try {
-          const pending = await biodataCollection
-            .find({ bioDataStatus: "pending" })
-            .toArray();
-          res.status(200).json(pending);
-        } catch (err) {
-          res.status(500).json({ message: "Server Error" });
-        }
+    app.get("/pending-premium-biodatas", async (req, res) => {
+      try {
+        const pending = await biodataCollection
+          .find({ bioDataStatus: "pending" })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.status(200).json(pending);
+      } catch (err) {
+        res.status(500).json({ message: "Server Error" });
       }
-    );
+    });
 
     // post request
     app.post("/users", async (req, res) => {
@@ -673,28 +669,23 @@ async function run() {
     });
 
     // [admin] /approve-premium/:biodataId request
-    app.patch(
-      "/approve-premium/:biodataId",
-      verifyToken,
-      verifyAdmin,
-      async (req, res) => {
-        const { biodataId } = req.params;
-        try {
-          const result = await biodataCollection.updateOne(
-            { _id: new ObjectId(biodataId) },
-            { $set: { bioDataStatus: "premium" } }
-          );
-          if (result.modifiedCount === 0) {
-            return res
-              .status(404)
-              .json({ message: "Biodata not found or already premium" });
-          }
-          res.status(200).json({ message: "Biodata approved for premium" });
-        } catch (err) {
-          res.status(500).json({ message: "Failed to update biodata" });
+    app.patch("/approve-premium/:biodataId", async (req, res) => {
+      const { biodataId } = req.params;
+      try {
+        const result = await biodataCollection.updateOne(
+          { _id: new ObjectId(biodataId) },
+          { $set: { bioDataStatus: "premium", updatedAt: new Date() } }
+        );
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Biodata not found or already premium" });
         }
+        res.status(200).json({ message: "Biodata approved for premium" });
+      } catch (err) {
+        res.status(500).json({ message: "Failed to update biodata" });
       }
-    );
+    });
 
     // DELETE: favourites
     app.delete("/favourites", async (req, res) => {
