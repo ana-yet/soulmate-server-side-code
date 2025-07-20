@@ -750,6 +750,31 @@ async function run() {
       }
     });
 
+    // admin for accept success story
+    app.patch("/accept-success-story/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await successStoriesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "approved" } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Success story not found or already approved" });
+        }
+
+        res
+          .status(200)
+          .json({ success: true, message: "Success story approved" });
+      } catch (error) {
+        console.error("Error approving success story:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
     // DELETE: favourites
     app.delete("/favourites", async (req, res) => {
       try {
