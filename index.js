@@ -379,6 +379,22 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
+    // get the premium bio data request
+    app.get(
+      "/pending-premium-biodatas",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const pending = await biodataCollection
+            .find({ bioDataStatus: "pending" })
+            .toArray();
+          res.status(200).json(pending);
+        } catch (err) {
+          res.status(500).json({ message: "Server Error" });
+        }
+      }
+    );
 
     // post request
     app.post("/users", async (req, res) => {
