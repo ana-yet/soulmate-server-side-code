@@ -341,7 +341,7 @@ async function run() {
                 mobile: {
                   $cond: [
                     { $eq: ["$status", "approved"] },
-                    "$biodataDetails.mobile",
+                    "$biodataDetails.mobileNumber",
                     null,
                   ],
                 },
@@ -404,6 +404,27 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
+
+    // get the success story request
+    app.get("/pending-success-stories", async (req, res) => {
+      try {
+        const pendingStories = await successStoriesCollection
+          .find({ status: "pending" })
+          .toArray();
+
+        res.status(200).json({
+          success: true,
+          data: pendingStories,
+        });
+      } catch (error) {
+        console.error("Error fetching pending success stories:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch pending success stories",
+        });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
