@@ -41,6 +41,26 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+const verifyAdmin = async (req, res, next) => {
+  try {
+    const requesterEmail = req.user?.email;
+    if (!requesterEmail) {
+      return res.status(401).json({ message: "Unauthorized. No user email." });
+    }
+
+    const user = await req.usersCollection.findOne({ email: requesterEmail });
+
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden. Admins only." });
+    }
+
+    next(); // ✅ Admin confirmed, proceed
+  } catch (error) {
+    console.error("Admin verification failed:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -577,33 +597,7 @@ async function run() {
         biodataUpdate
       );
 
-      // Step 2: Get the biodata to retrieve the email
-      const biodata = await biodataCollection.findOne(biodataFilter);
-      const userEmail = biodata?.contactEmail;
-
-      if (!userEmail) {
-        return res.status(404).json({
-          success: false,
-          message: "User email not found in biodata",
-        });
-      }
-
-      // Step 3: Update User Collection
-      const userFilter = { email: userEmail };
-      const userUpdate = {
-        $set: {
-          subscriptionType: "pending",
-          updatedAt: new Date(),
-        },
-      };
-
-      const userResult = await usersCollection.updateOne(
-        userFilter,
-        userUpdate
-      );
-
-      // Step 4: Final Response
-      if (biodataResult.modifiedCount > 0 && userResult.modifiedCount > 0) {
+      if (biodataResult.modifiedCount > 0) {
         return res.json({
           success: true,
           message: "Request sent for premium approval",
@@ -635,6 +629,29 @@ async function run() {
         res.status(200).json({ message: "User promoted to admin" });
       } catch (error) {
         console.error("Admin update error:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    //admin: for making premium PATCH /users/premium/:id
+    app.patch("/users/premium/:id", async (req, res) => {
+      const userId = req.params.id;
+
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { subscriptionType: "premium" } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "User not found or already premium" });
+        }
+
+        res.status(200).json({ message: "User upgraded to premium" });
+      } catch (error) {
+        console.error("Premium update error:", error);
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
