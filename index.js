@@ -364,6 +364,65 @@ async function run() {
       }
     });
 
+    // get the user dashboard stars
+    app.get("/user-dashboard-summary", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email) {
+          return res.status(400).json({ message: "Email is required" });
+        }
+
+        // 1. Fetch user's biodata
+        const biodata = await biodataCollection.findOne({
+          contactEmail: email,
+        });
+
+        // 2. Count favourites (liked biodatas)
+        const favouritesCount = await favouritesCollection.countDocuments({
+          userEmail: email,
+        });
+
+        // 3. Contact request stats
+        const allRequests = await biodataRequestCollection
+          .find({ requesterEmail: email })
+          .toArray();
+
+        const approved = allRequests.filter(
+          (r) => r.status === "approved"
+        ).length;
+        const pending = allRequests.filter(
+          (r) => r.status === "pending"
+        ).length;
+
+        // 4. Check success story (if submitted)
+        const successStory = await successStoriesCollection.findOne({
+          selfBiodataId: biodata.biodataId,
+        });
+
+        res.send({
+          biodata: biodata
+            ? {
+                biodataId: biodata.biodataId,
+                bioDataStatus: biodata.bioDataStatus,
+                isCompleted: !!biodata.name && !!biodata.age, // Customize as per your schema
+              }
+            : null,
+          isPremium: biodata?.bioDataStatus === "premium",
+          favouritesCount,
+          contactStats: {
+            total: allRequests.length,
+            approved,
+            pending,
+          },
+          successStory: successStory || null,
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch user dashboard data", error });
+      }
+    });
+
     // ADMIN: get: /users?search=name
     app.get("/users", async (req, res) => {
       try {
