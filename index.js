@@ -425,6 +425,50 @@ async function run() {
       }
     });
 
+    // get admin dashboard stars
+    app.get("/admin-dashboard-stats", async (req, res) => {
+      try {
+        const totalBiodata = await biodataCollection.estimatedDocumentCount();
+
+        const maleBiodata = await biodataCollection.countDocuments({
+          biodataType: "Male",
+        });
+        const femaleBiodata = await biodataCollection.countDocuments({
+          biodataType: "Female",
+        });
+
+        const premiumBiodata = await biodataCollection.countDocuments({
+          bioDataStatus: "premium",
+        });
+
+        const totalMarriages = await successStoriesCollection.countDocuments({
+          status: "approved",
+        });
+
+        const contactRequests = await biodataRequestCollection
+          .find({ status: "approved" })
+          .toArray();
+
+        const totalRevenue = contactRequests.reduce(
+          (acc, req) => acc + (req.price || 0),
+          0
+        );
+
+        res.send({
+          totalBiodata,
+          maleBiodata,
+          femaleBiodata,
+          premiumBiodata,
+          totalRevenue,
+          totalMarriages,
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch admin dashboard stats", error });
+      }
+    });
+
     // post request
     app.post("/users", async (req, res) => {
       try {
@@ -534,6 +578,7 @@ async function run() {
         requesterEmail,
         requestedBiodataId,
         requesterName,
+        price: 5,
         status: "pending",
         requestedAt: new Date(),
       });
