@@ -364,6 +364,28 @@ async function run() {
       }
     });
 
+    // get success story data
+    app.get("/success-stories", async (req, res) => {
+      try {
+        const stories = await successStoriesCollection
+          .find({ status: "approved", shareOnHomePage: true })
+          .project({
+            coupleImage: 1,
+            marriageDate: 1,
+            successStory: 1,
+            rating: 1,
+          })
+          .sort({ createdAt: -1 })
+          .limit(4)
+          .toArray();
+
+        res.send(stories);
+      } catch (error) {
+        console.error("Failed to fetch success stories", error);
+        res.status(500).json({ message: "Server Error" });
+      }
+    });
+
     // get the user dashboard stars
     app.get("/user-dashboard-summary", async (req, res) => {
       try {
