@@ -3,6 +3,8 @@ const express = require("express");
 const cors = require("cors");
 const { ObjectId } = require("mongodb");
 const { MongoClient, ServerApiVersion } = require("mongodb");
+const { isValidObjectId } = require("mongoose");
+const admin = require("firebase-admin");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -10,16 +12,26 @@ const uri = process.env.MONGO_URI;
 
 const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 
-const admin = require("firebase-admin");
-var serviceAccount = require("./firebase-key.json");
-const { isValidObjectId } = require("mongoose");
+const decodedKey = Buffer.from(
+  process.env.FIREBASE_ADMIN_KEY,
+  "base64"
+).toString("utf8");
+const serviceAccount = JSON.parse(decodedKey);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
 // middleware
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CLIENT_SITE,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
