@@ -41,26 +41,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-const verifyAdmin = async (req, res, next) => {
-  try {
-    const requesterEmail = req.user?.email;
-    if (!requesterEmail) {
-      return res.status(401).json({ message: "Unauthorized. No user email." });
-    }
-
-    const user = await req.usersCollection.findOne({ email: requesterEmail });
-
-    if (!user || user.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden. Admins only." });
-    }
-
-    next(); // ✅ Admin confirmed, proceed
-  } catch (error) {
-    console.error("Admin verification failed:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
-
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -80,6 +60,30 @@ async function run() {
     const favouritesCollection = db.collection("favourites");
     const biodataRequestCollection = db.collection("biodataRequest");
     const successStoriesCollection = db.collection("successStories");
+
+    // verify admin middleware
+    const verifyAdmin = async (req, res, next) => {
+      try {
+        const requesterEmail = req.decoded.email;
+        if (!requesterEmail) {
+          return res
+            .status(401)
+            .json({ message: "Unauthorized. No user email." });
+        }
+        const query = { email: requesterEmail };
+
+        const user = await usersCollection.findOne(query);
+
+        if (!user || user.role !== "admin") {
+          return res.status(403).json({ message: "Forbidden. Admins only." });
+        }
+
+        next();
+      } catch (error) {
+        console.error("Admin verification failed:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    };
 
     // GET user info
     app.get("/users/info/:email", async (req, res) => {
@@ -125,7 +129,7 @@ async function run() {
     });
 
     // get details bio data
-    app.get("/singleBiodata/:id", async (req, res) => {
+    app.get("/singleBiodata/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
 
@@ -148,7 +152,7 @@ async function run() {
     });
 
     // get similar bio data
-    app.get("/biodata/similar/:id", async (req, res) => {
+    app.get("/biodata/similar/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
 
@@ -196,18 +200,22 @@ async function run() {
     });
 
     // Get: already favourites or not for details page
-    app.get("/favourites/check/:email/:biodataId", async (req, res) => {
-      const { email, biodataId } = req.params;
+    app.get(
+      "/favourites/check/:email/:biodataId",
+      verifyToken,
+      async (req, res) => {
+        const { email, biodataId } = req.params;
 
-      const result = await favouritesCollection.findOne({
-        userEmail: email,
-        biodataId,
-      });
-      res.json({ isFavourite: !!result });
-    });
+        const result = await favouritesCollection.findOne({
+          userEmail: email,
+          biodataId,
+        });
+        res.json({ isFavourite: !!result });
+      }
+    );
 
     // Get: the all favourites data
-    app.get("/favourites/:email", async (req, res) => {
+    app.get("/favourites/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
 
       try {
@@ -307,7 +315,7 @@ async function run() {
     });
 
     // Get: my contact request data
-    app.get("/my-contact-requests", async (req, res) => {
+    app.get("/my-contact-requests", verifyToken, async (req, res) => {
       try {
         const userEmail = req.query.email;
 
@@ -387,7 +395,7 @@ async function run() {
     });
 
     // get the user dashboard stars
-    app.get("/user-dashboard-summary", async (req, res) => {
+    app.get("/user-dashboard-summary", verifyToken, async (req, res) => {
       try {
         const email = req.query.email;
         if (!email) {
@@ -446,7 +454,7 @@ async function run() {
     });
 
     // ADMIN: get: /users?search=name
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const search = req.query.search || "";
         const query = {
@@ -461,50 +469,65 @@ async function run() {
       }
     });
     // get the premium bio data request
-    app.get("/pending-premium-biodatas", async (req, res) => {
-      try {
-        const pending = await biodataCollection
-          .find({ bioDataStatus: "pending" })
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.status(200).json(pending);
-      } catch (err) {
-        res.status(500).json({ message: "Server Error" });
+    app.get(
+      "/pending-premium-biodatas",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const pending = await biodataCollection
+            .find({ bioDataStatus: "pending" })
+            .sort({ createdAt: -1 })
+            .toArray();
+          res.status(200).json(pending);
+        } catch (err) {
+          res.status(500).json({ message: "Server Error" });
+        }
       }
-    });
+    );
     // Get the pending contact requests
-    app.get("/pending-contact-requests", async (req, res) => {
-      try {
-        const requests = await biodataRequestCollection
-          .find({ status: "pending" })
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.status(200).json({ success: true, data: requests });
-      } catch (error) {
-        console.error("Failed to fetch contact requests:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+    app.get(
+      "/pending-contact-requests",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const requests = await biodataRequestCollection
+            .find({ status: "pending" })
+            .sort({ createdAt: -1 })
+            .toArray();
+          res.status(200).json({ success: true, data: requests });
+        } catch (error) {
+          console.error("Failed to fetch contact requests:", error);
+          res.status(500).json({ message: "Internal Server Error" });
+        }
       }
-    });
+    );
 
     // get the success story request
-    app.get("/pending-success-stories", async (req, res) => {
-      try {
-        const pendingStories = await successStoriesCollection
-          .find({ status: "pending" })
-          .toArray();
+    app.get(
+      "/pending-success-stories",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const pendingStories = await successStoriesCollection
+            .find({ status: "pending" })
+            .toArray();
 
-        res.status(200).json({
-          success: true,
-          data: pendingStories,
-        });
-      } catch (error) {
-        console.error("Error fetching pending success stories:", error);
-        res.status(500).json({
-          success: false,
-          message: "Failed to fetch pending success stories",
-        });
+          res.status(200).json({
+            success: true,
+            data: pendingStories,
+          });
+        } catch (error) {
+          console.error("Error fetching pending success stories:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to fetch pending success stories",
+          });
+        }
       }
-    });
+    );
 
     // get the success stars for home page
     app.get("/success-counter", async (req, res) => {
@@ -536,48 +559,53 @@ async function run() {
     });
 
     // get admin dashboard stars
-    app.get("/admin-dashboard-stats", async (req, res) => {
-      try {
-        const totalBiodata = await biodataCollection.estimatedDocumentCount();
+    app.get(
+      "/admin-dashboard-stats",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const totalBiodata = await biodataCollection.estimatedDocumentCount();
 
-        const maleBiodata = await biodataCollection.countDocuments({
-          biodataType: "Male",
-        });
-        const femaleBiodata = await biodataCollection.countDocuments({
-          biodataType: "Female",
-        });
+          const maleBiodata = await biodataCollection.countDocuments({
+            biodataType: "Male",
+          });
+          const femaleBiodata = await biodataCollection.countDocuments({
+            biodataType: "Female",
+          });
 
-        const premiumBiodata = await biodataCollection.countDocuments({
-          bioDataStatus: "premium",
-        });
+          const premiumBiodata = await biodataCollection.countDocuments({
+            bioDataStatus: "premium",
+          });
 
-        const totalMarriages = await successStoriesCollection.countDocuments({
-          status: "approved",
-        });
+          const totalMarriages = await successStoriesCollection.countDocuments({
+            status: "approved",
+          });
 
-        const contactRequests = await biodataRequestCollection
-          .find({ status: "approved" })
-          .toArray();
+          const contactRequests = await biodataRequestCollection
+            .find({ status: "approved" })
+            .toArray();
 
-        const totalRevenue = contactRequests.reduce(
-          (acc, req) => acc + (req.price || 0),
-          0
-        );
+          const totalRevenue = contactRequests.reduce(
+            (acc, req) => acc + (req.price || 0),
+            0
+          );
 
-        res.send({
-          totalBiodata,
-          maleBiodata,
-          femaleBiodata,
-          premiumBiodata,
-          totalRevenue,
-          totalMarriages,
-        });
-      } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Failed to fetch admin dashboard stats", error });
+          res.send({
+            totalBiodata,
+            maleBiodata,
+            femaleBiodata,
+            premiumBiodata,
+            totalRevenue,
+            totalMarriages,
+          });
+        } catch (error) {
+          res
+            .status(500)
+            .json({ message: "Failed to fetch admin dashboard stats", error });
+        }
       }
-    });
+    );
 
     // post request
     app.post("/users", async (req, res) => {
@@ -641,7 +669,7 @@ async function run() {
     });
 
     // post favorurites
-    app.post("/favourites", async (req, res) => {
+    app.post("/favourites", verifyToken, async (req, res) => {
       const { userEmail, biodataId } = req.body;
 
       // Check if already favorites
@@ -665,7 +693,7 @@ async function run() {
     });
 
     // post the bio data request
-    app.post("/biodata-requests", async (req, res) => {
+    app.post("/biodata-requests", verifyToken, async (req, res) => {
       const { requesterEmail, requestedBiodataId, requesterName } = req.body;
 
       if (!requesterEmail || !requestedBiodataId || !requesterName) {
@@ -697,7 +725,7 @@ async function run() {
     });
 
     // post billing info
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
       const { price } = req.body;
       const amount = price * 100;
 
@@ -709,7 +737,7 @@ async function run() {
     });
 
     //POST : success story
-    app.post("/success-stories", async (req, res) => {
+    app.post("/success-stories", verifyToken, async (req, res) => {
       try {
         const {
           selfBiodataId,
@@ -782,7 +810,7 @@ async function run() {
       res.send({ success: true, modifiedCount: result.modifiedCount });
     });
 
-    app.patch("/request-premium/:id", async (req, res) => {
+    app.patch("/request-premium/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
 
       // Step 1: Update Biodata Collection
@@ -813,125 +841,150 @@ async function run() {
     });
 
     // ADMIN: make admin  patch: users/admin/:id
-    app.patch("/users/admin/:id", async (req, res) => {
-      const userId = req.params.id;
+    app.patch(
+      "/users/admin/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const userId = req.params.id;
 
-      try {
-        const result = await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { role: "admin" } }
-        );
+        try {
+          const result = await usersCollection.updateOne(
+            { _id: new ObjectId(userId) },
+            { $set: { role: "admin" } }
+          );
 
-        if (result.modifiedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "User not found or already admin" });
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "User not found or already admin" });
+          }
+
+          res.status(200).json({ message: "User promoted to admin" });
+        } catch (error) {
+          console.error("Admin update error:", error);
+          res.status(500).json({ message: "Internal Server Error" });
         }
-
-        res.status(200).json({ message: "User promoted to admin" });
-      } catch (error) {
-        console.error("Admin update error:", error);
-        res.status(500).json({ message: "Internal Server Error" });
       }
-    });
+    );
 
     //admin: for making premium PATCH /users/premium/:id
-    app.patch("/users/premium/:id", async (req, res) => {
-      const userId = req.params.id;
+    app.patch(
+      "/users/premium/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const userId = req.params.id;
 
-      try {
-        const result = await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { subscriptionType: "premium" } }
-        );
+        try {
+          const result = await usersCollection.updateOne(
+            { _id: new ObjectId(userId) },
+            { $set: { subscriptionType: "premium" } }
+          );
 
-        if (result.modifiedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "User not found or already premium" });
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "User not found or already premium" });
+          }
+
+          res.status(200).json({ message: "User upgraded to premium" });
+        } catch (error) {
+          console.error("Premium update error:", error);
+          res.status(500).json({ message: "Internal Server Error" });
         }
-
-        res.status(200).json({ message: "User upgraded to premium" });
-      } catch (error) {
-        console.error("Premium update error:", error);
-        res.status(500).json({ message: "Internal Server Error" });
       }
-    });
+    );
 
     // [admin] /approve-premium/:biodataId request
-    app.patch("/approve-premium/:biodataId", async (req, res) => {
-      const { biodataId } = req.params;
-      try {
-        const result = await biodataCollection.updateOne(
-          { _id: new ObjectId(biodataId) },
-          { $set: { bioDataStatus: "premium", updatedAt: new Date() } }
-        );
-        if (result.modifiedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "Biodata not found or already premium" });
+    app.patch(
+      "/approve-premium/:biodataId",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { biodataId } = req.params;
+        try {
+          const result = await biodataCollection.updateOne(
+            { _id: new ObjectId(biodataId) },
+            { $set: { bioDataStatus: "premium", updatedAt: new Date() } }
+          );
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "Biodata not found or already premium" });
+          }
+          res.status(200).json({ message: "Biodata approved for premium" });
+        } catch (err) {
+          res.status(500).json({ message: "Failed to update biodata" });
         }
-        res.status(200).json({ message: "Biodata approved for premium" });
-      } catch (err) {
-        res.status(500).json({ message: "Failed to update biodata" });
       }
-    });
+    );
 
     // admin for approve contact request
-    app.patch("/approve-contact/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
+    app.patch(
+      "/approve-contact/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
 
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = { $set: { status: "approved" } };
+          const filter = { _id: new ObjectId(id) };
+          const updateDoc = { $set: { status: "approved" } };
 
-        const result = await biodataRequestCollection.updateOne(
-          filter,
-          updateDoc
-        );
+          const result = await biodataRequestCollection.updateOne(
+            filter,
+            updateDoc
+          );
 
-        if (result.modifiedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "Contact request not found or already approved" });
+          if (result.modifiedCount === 0) {
+            return res.status(404).json({
+              message: "Contact request not found or already approved",
+            });
+          }
+
+          res
+            .status(200)
+            .json({ success: true, message: "Contact request approved" });
+        } catch (error) {
+          console.error("Failed to approve contact request:", error);
+          res.status(500).json({ message: "Internal Server Error" });
         }
-
-        res
-          .status(200)
-          .json({ success: true, message: "Contact request approved" });
-      } catch (error) {
-        console.error("Failed to approve contact request:", error);
-        res.status(500).json({ message: "Internal Server Error" });
       }
-    });
+    );
 
     // admin for accept success story
-    app.patch("/accept-success-story/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
+    app.patch(
+      "/accept-success-story/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
 
-        const result = await successStoriesCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status: "approved" } }
-        );
+          const result = await successStoriesCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status: "approved" } }
+          );
 
-        if (result.modifiedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "Success story not found or already approved" });
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "Success story not found or already approved" });
+          }
+
+          res
+            .status(200)
+            .json({ success: true, message: "Success story approved" });
+        } catch (error) {
+          console.error("Error approving success story:", error);
+          res.status(500).json({ message: "Internal Server Error" });
         }
-
-        res
-          .status(200)
-          .json({ success: true, message: "Success story approved" });
-      } catch (error) {
-        console.error("Error approving success story:", error);
-        res.status(500).json({ message: "Internal Server Error" });
       }
-    });
+    );
 
     // DELETE: favourites
-    app.delete("/favourites", async (req, res) => {
+    app.delete("/favourites", verifyToken, async (req, res) => {
       try {
         const { userEmail, biodataId } = req.query;
 
@@ -954,26 +1007,30 @@ async function run() {
     });
 
     // DELETE : my contact request
-    app.delete("/delete-contact-requests/:id", async (req, res) => {
-      try {
-        const { id } = req.params;
+    app.delete(
+      "/delete-contact-requests/:id",
+      verifyToken,
+      async (req, res) => {
+        try {
+          const { id } = req.params;
 
-        const result = await biodataRequestCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
+          const result = await biodataRequestCollection.deleteOne({
+            _id: new ObjectId(id),
+          });
 
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ message: "Request not found" });
+          if (result.deletedCount === 0) {
+            return res.status(404).json({ message: "Request not found" });
+          }
+
+          res
+            .status(200)
+            .json({ success: true, message: "Deleted successfully" });
+        } catch (error) {
+          console.error("Error deleting contact request:", error);
+          res.status(500).json({ message: "Server error" });
         }
-
-        res
-          .status(200)
-          .json({ success: true, message: "Deleted successfully" });
-      } catch (error) {
-        console.error("Error deleting contact request:", error);
-        res.status(500).json({ message: "Server error" });
       }
-    });
+    );
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
