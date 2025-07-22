@@ -21,26 +21,6 @@ admin.initializeApp({
 app.use(express.json());
 app.use(cors());
 
-const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Unauthorized access" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    // console.log("✅ Decoded Token:", decoded);
-    req.decoded = decoded;
-    next();
-  } catch (error) {
-    console.error("❌ Firebase token verification failed:", error);
-    return res.status(403).send({ message: "Forbidden access", error });
-  }
-};
-
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -60,6 +40,26 @@ async function run() {
     const favouritesCollection = db.collection("favourites");
     const biodataRequestCollection = db.collection("biodataRequest");
     const successStoriesCollection = db.collection("successStories");
+
+    // verify token
+    const verifyToken = async (req, res, next) => {
+      const authHeader = req.headers.authorization;
+
+      if (!authHeader?.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Unauthorized access" });
+      }
+
+      const token = authHeader.split(" ")[1];
+
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch (error) {
+        console.error(" Firebase token verification failed:", error);
+        return res.status(403).send({ message: "Forbidden access", error });
+      }
+    };
 
     // verify admin middleware
     const verifyAdmin = async (req, res, next) => {
@@ -86,7 +86,7 @@ async function run() {
     };
 
     // GET user info
-    app.get("/users/info/:email", async (req, res) => {
+    app.get("/users/info/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       if (user) {
@@ -96,6 +96,27 @@ async function run() {
         });
       } else {
         return res.status(404).json({ role: null });
+      }
+    });
+
+    // get user data
+    app.get("/my-profile", verifyToken, async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        if (!email) {
+          return res.status(400).send({ error: "Email is required" });
+        }
+
+        const user = await usersCollection.findOne({ email });
+
+        if (!user) {
+          return res.status(404).send({ error: "User not found" });
+        }
+
+        res.send(user);
+      } catch (err) {
+        res.status(500).send({ error: "Internal server error", message: err });
       }
     });
 
