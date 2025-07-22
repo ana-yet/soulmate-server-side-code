@@ -506,6 +506,35 @@ async function run() {
       }
     });
 
+    // get the success stars for home page
+    app.get("/success-counter", async (req, res) => {
+      try {
+        const totalBiodata = await biodataCollection.estimatedDocumentCount();
+
+        const maleBiodata = await biodataCollection.countDocuments({
+          biodataType: "Male",
+        });
+
+        const femaleBiodata = await biodataCollection.countDocuments({
+          biodataType: "Female",
+        });
+
+        const totalMarriages = await successStoriesCollection.countDocuments({
+          status: "approved",
+        });
+
+        res.json({
+          totalBiodata,
+          maleBiodata,
+          femaleBiodata,
+          totalMarriages,
+          lastUpdated: new Date(),
+        });
+      } catch (err) {
+        res.status(500).json({ message: "Server error", error: err });
+      }
+    });
+
     // get admin dashboard stars
     app.get("/admin-dashboard-stats", async (req, res) => {
       try {
