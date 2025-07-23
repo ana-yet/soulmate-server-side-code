@@ -24,14 +24,7 @@ admin.initializeApp({
 
 // middleware
 app.use(express.json());
-app.use(
-  cors({
-    origin: process.env.CLIENT_SITE,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors());
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -219,8 +212,10 @@ async function run() {
       try {
         const sortDirection = req.query.sort === "desc" ? -1 : 1;
 
+        const query = { bioDataStatus: "premium" };
+
         const premiumBiodata = await biodataCollection
-          .find({ biodataStatus: "premium" })
+          .find(query)
           .sort({ age: sortDirection })
           .limit(8)
           .toArray();
@@ -408,8 +403,9 @@ async function run() {
     // get success story data
     app.get("/success-stories", async (req, res) => {
       try {
+        const query = { status: "approved", shareOnHomePage: true };
         const stories = await successStoriesCollection
-          .find({ status: "approved", shareOnHomePage: true })
+          .find(query)
           .project({
             coupleImage: 1,
             marriageDate: 1,
