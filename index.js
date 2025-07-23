@@ -45,7 +45,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     const db = client.db("matrimony");
     const usersCollection = db.collection("users");
     const biodataCollection = db.collection("biodata");
@@ -431,21 +431,22 @@ async function run() {
     app.get("/user-dashboard-summary", verifyToken, async (req, res) => {
       try {
         const email = req.query.email;
+
         if (!email) {
           return res.status(400).json({ message: "Email is required" });
         }
 
-        // 1. Fetch user's biodata
+        // 1. Get user's biodata
         const biodata = await biodataCollection.findOne({
           contactEmail: email,
         });
 
-        // 2. Count favourites (liked biodatas)
+        // 2. Count favourites
         const favouritesCount = await favouritesCollection.countDocuments({
           userEmail: email,
         });
 
-        // 3. Contact request stats
+        // 3. Contact Request Stats
         const allRequests = await biodataRequestCollection
           .find({ requesterEmail: email })
           .toArray();
@@ -457,20 +458,24 @@ async function run() {
           (r) => r.status === "pending"
         ).length;
 
-        // 4. Check success story (if submitted)
-        const successStory = await successStoriesCollection.findOne({
-          selfBiodataId: biodata.biodataId,
-        });
+        // 4. Check Success Story (Only if biodata exists)
+        let successStory = null;
+        if (biodata?.biodataId) {
+          successStory = await successStoriesCollection.findOne({
+            selfBiodataId: biodata.biodataId,
+          });
+        }
 
-        res.send({
+        // 5. Final Response
+        res.status(200).json({
           biodata: biodata
             ? {
                 biodataId: biodata.biodataId,
                 bioDataStatus: biodata.bioDataStatus,
-                isCompleted: !!biodata.name && !!biodata.age, // Customize as per your schema
+                isCompleted: !!biodata.name && !!biodata.age,
               }
             : null,
-          isPremium: biodata?.bioDataStatus === "premium",
+          isPremium: biodata?.bioDataStatus === "premium" || false,
           favouritesCount,
           contactStats: {
             total: allRequests.length,
@@ -480,9 +485,11 @@ async function run() {
           successStory: successStory || null,
         });
       } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Failed to fetch user dashboard data", error });
+        console.error("Error fetching user dashboard data:", error);
+        res.status(500).json({
+          message: "Failed to fetch user dashboard data",
+          error: error.message,
+        });
       }
     });
 
@@ -1066,10 +1073,10 @@ async function run() {
     );
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "✅ Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "✅ Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
