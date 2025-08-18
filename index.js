@@ -1073,6 +1073,63 @@ async function run() {
       }
     );
 
+    // put methods for user update
+    app.put("/update-profile/:email", verifyToken, async (req, res) => {
+      try {
+        const { email } = req.params;
+        const updateData = req.body;
+
+        //  Remove fields that shouldn't be updatable
+        const {
+          _id,
+          email: bodyEmail,
+          role,
+          subscriptionType,
+          subscriptionExpires,
+          createdAt,
+          ...sanitizedData
+        } = updateData;
+
+        // Convert comma-separated strings to arrays for specific fields
+        const arrayFields = ["languages", "hobbies", "interests", "skills"];
+        arrayFields.forEach((field) => {
+          if (
+            sanitizedData[field] &&
+            typeof sanitizedData[field] === "string"
+          ) {
+            sanitizedData[field] = sanitizedData[field]
+              .split(",")
+              .map((item) => item.trim())
+              .filter((item) => item);
+          }
+        });
+
+        //  Add updatedAt timestamp
+        sanitizedData.updatedAt = new Date();
+
+        //  Perform the update
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: sanitizedData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "User not found" });
+        }
+
+        res.send({
+          success: true,
+          message: "Profile updated successfully",
+          modifiedCount: result.modifiedCount,
+        });
+      } catch (error) {
+        console.error("Error updating profile:", error);
+        res
+          .status(500)
+          .send({ message: "Internal server error", error: error.message });
+      }
+    });
+
     // DELETE: favourites
     app.delete("/favourites", verifyToken, async (req, res) => {
       try {
