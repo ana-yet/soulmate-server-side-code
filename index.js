@@ -1,4 +1,4 @@
-require("dotenv").config(); // 🔼 Must be first
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { ObjectId } = require("mongodb");
@@ -400,18 +400,12 @@ async function run() {
       }
     });
 
-    // get success story data
+    // get success story data for home page
     app.get("/success-stories", async (req, res) => {
       try {
-        const query = { status: "approved", shareOnHomePage: true };
+        const query = { status: "approved" };
         const stories = await successStoriesCollection
           .find(query)
-          .project({
-            coupleImage: 1,
-            marriageDate: 1,
-            successStory: 1,
-            rating: 1,
-          })
           .sort({ createdAt: -1 })
           .limit(4)
           .toArray();
@@ -420,6 +414,29 @@ async function run() {
       } catch (error) {
         console.error("Failed to fetch success stories", error);
         res.status(500).json({ message: "Server Error" });
+      }
+    });
+
+    // get success story details
+    app.get("/success-stories/:id", async (req, res) => {
+      const { id } = req.params;
+      if (!isValidObjectId(id)) {
+        return res.status(400).json({ message: "Invalid story ID" });
+      }
+
+      try {
+        const story = await successStoriesCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!story) {
+          return res.status(404).json({ message: "Story not found" });
+        }
+
+        res.status(200).json({ success: true, data: story });
+      } catch (error) {
+        console.error("Error fetching success story:", error);
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -550,6 +567,7 @@ async function run() {
           const pendingStories = await successStoriesCollection
             .find({ status: "pending" })
             .toArray();
+          console.log(pendingStories);
 
           res.status(200).json({
             success: true,
@@ -775,47 +793,28 @@ async function run() {
     //POST : success story
     app.post("/success-stories", verifyToken, async (req, res) => {
       try {
-        const {
-          selfBiodataId,
-          partnerBiodataId,
-          coupleImage,
-          successStory,
-          marriageDate,
-          shareOnHomePage = false,
-        } = req.body;
+        const story = req.body;
 
-        if (
-          !selfBiodataId ||
-          !partnerBiodataId ||
-          !coupleImage ||
-          !successStory ||
-          !marriageDate
-        ) {
+        if (!story) {
           return res.status(400).json({ message: "All fields are required." });
         }
 
-        const existingStory = await successStoriesCollection.findOne({
-          selfBiodataId: selfBiodataId,
-        });
+        // const existingStory = await successStoriesCollection.findOne({
+        //   selfBiodataId: selfBiodataId,
+        // });
 
-        if (existingStory) {
-          return res
-            .status(409)
-            .json({ message: "Success story already submitted." });
-        }
+        // if (existingStory) {
+        //   return res
+        //     .status(409)
+        //     .json({ message: "Success story already submitted." });
+        // }
 
-        const newStory = {
-          selfBiodataId: parseInt(selfBiodataId),
-          partnerBiodataId: parseInt(partnerBiodataId),
-          coupleImage,
-          successStory,
-          shareOnHomePage,
-          marriageDate,
-          status: "pending",
-          createdAt: new Date(),
-        };
+        story.status = "pending";
+        story.createdAt = new Date();
 
-        const result = await successStoriesCollection.insertOne(newStory);
+        // console.log("Submitting success story:", story);
+
+        const result = await successStoriesCollection.insertOne(story);
 
         res.status(201).json({
           success: true,
@@ -827,6 +826,7 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
+
     // patch
     app.patch("/biodata/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
