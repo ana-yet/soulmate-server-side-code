@@ -619,11 +619,21 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         try {
+          // 1. Total Users
+          const totalUsers = await usersCollection.estimatedDocumentCount();
+
+          // 2. Premium Users
+          const premiumUsers = await usersCollection.countDocuments({
+            subscriptionType: "premium",
+          });
+
+          // 3. Biodata Stats
           const totalBiodata = await biodataCollection.estimatedDocumentCount();
 
           const maleBiodata = await biodataCollection.countDocuments({
             biodataType: "Male",
           });
+
           const femaleBiodata = await biodataCollection.countDocuments({
             biodataType: "Female",
           });
@@ -632,10 +642,44 @@ async function run() {
             bioDataStatus: "premium",
           });
 
-          const totalMarriages = await successStoriesCollection.countDocuments({
-            status: "approved",
+          const malePremiumBiodata = await biodataCollection.countDocuments({
+            biodataType: "Male",
+            bioDataStatus: "premium",
+          });
+          const femalePremiumBiodata = await biodataCollection.countDocuments({
+            biodataType: "Female",
+            bioDataStatus: "premium",
           });
 
+          // 4. Success Stories
+          const totalSuccessStories =
+            await successStoriesCollection.estimatedDocumentCount();
+
+          const approvedSuccessStories =
+            await successStoriesCollection.countDocuments({
+              status: "approved",
+            });
+
+          const pendingSuccessStories =
+            await successStoriesCollection.countDocuments({
+              status: "pending",
+            });
+
+          // 5. Contact Requests
+          const totalContactRequests =
+            await biodataRequestCollection.estimatedDocumentCount();
+
+          const approvedContactRequests =
+            await biodataRequestCollection.countDocuments({
+              status: "approved",
+            });
+
+          const pendingContactRequests =
+            await biodataRequestCollection.countDocuments({
+              status: "pending",
+            });
+
+          // 6. Revenue
           const contactRequests = await biodataRequestCollection
             .find({ status: "approved" })
             .toArray();
@@ -645,13 +689,23 @@ async function run() {
             0
           );
 
+          //  Send response
           res.send({
+            totalUsers,
+            premiumUsers,
             totalBiodata,
             maleBiodata,
             femaleBiodata,
             premiumBiodata,
+            malePremiumBiodata,
+            femalePremiumBiodata,
+            totalSuccessStories,
+            approvedSuccessStories,
+            pendingSuccessStories,
+            totalContactRequests,
+            approvedContactRequests,
+            pendingContactRequests,
             totalRevenue,
-            totalMarriages,
           });
         } catch (error) {
           res
