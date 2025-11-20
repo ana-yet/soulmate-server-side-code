@@ -168,7 +168,7 @@ async function run() {
     });
 
     // get details bio data
-    app.get("/singleBiodata/:id", verifyToken, async (req, res) => {
+    app.get("/singleBiodata/:id", async (req, res) => {
       try {
         const { id } = req.params;
 
@@ -191,7 +191,7 @@ async function run() {
     });
 
     // get similar bio data
-    app.get("/biodata/similar/:id", verifyToken, async (req, res) => {
+    app.get("/biodata/similar/:id", async (req, res) => {
       try {
         const { id } = req.params;
 
