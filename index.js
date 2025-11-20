@@ -5,8 +5,17 @@ const { ObjectId } = require("mongodb");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const { isValidObjectId } = require("mongoose");
 const admin = require("firebase-admin");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:5173", "http://localhost:5174"],
+    credentials: true,
+  },
+});
 const port = process.env.PORT || 5000;
 const uri = process.env.MONGO_URI;
 
@@ -45,6 +54,10 @@ async function run() {
     const favouritesCollection = db.collection("favourites");
     const biodataRequestCollection = db.collection("biodataRequest");
     const successStoriesCollection = db.collection("successStories");
+    const messagesCollection = db.collection("messages");
+    const notificationsCollection = db.collection("notifications");
+    const savedSearchesCollection = db.collection("savedSearches");
+    const blogPostsCollection = db.collection("blogPosts");
 
     // verify token
     const verifyToken = async (req, res, next) => {
@@ -1179,6 +1192,418 @@ async function run() {
       }
     );
 
+    // ==================== MESSAGING SYSTEM ROUTES ====================
+
+    // POST: Send a new message
+    app.post("/api/messages", verifyToken, async (req, res) => {
+      try {
+        const { senderId, receiverId, message } = req.body;
+
+        if (!senderId || !receiverId || !message) {
+          return res.status(400).json({ message: "Missing required fields" });
+        }
+
+        // Create conversation ID (sorted to ensure consistency)
+        const conversationId = [senderId, receiverId].sort().join("_");
+
+        const newMessage = {
+          senderId,
+          receiverId,
+          message,
+          conversationId,
+          timestamp: new Date(),
+          isRead: false,
+        };
+
+        const result = await messagesCollection.insertOne(newMessage);
+        res.status(201).json({ success: true, message: "Message sent", data: result });
+      } catch (error) {
+        console.error("Error sending message:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET: Get conversation history
+    app.get("/api/messages/:conversationId", verifyToken, async (req, res) => {
+      try {
+        const { conversationId } = req.params;
+        const messages = await messagesCollection
+          .find({ conversationId })
+          .sort({ timestamp: 1 })
+          .toArray();
+
+        res.status(200).json({ success: true, data: messages });
+      } catch (error) {
+        console.error("Error fetching messages:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET: Get all user conversations
+    app.get("/api/conversations/:userId", verifyToken, async (req, res) => {
+      try {
+        const { userId } = req.params;
+
+        const conversations = await messagesCollection
+          .aggregate([
+            {
+              $match: {
+                $or: [{ senderId: userId }, { receiverId: userId }],
+              },
+            },
+            {
+              $sort: { timestamp: -1 },
+            },
+            {
+              $group: {
+                _id: "$conversationId",
+                lastMessage: { $first: "$message" },
+                lastTimestamp: { $first: "$timestamp" },
+                senderId: { $first: "$senderId" },
+                receiverId: { $first: "$receiverId" },
+                unreadCount: {
+                  $sum: {
+                    $cond: [
+                      { $and: [{ $eq: ["$receiverId", userId] }, { $eq: ["$isRead", false] }] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+            {
+              $sort: { lastTimestamp: -1 },
+            },
+          ])
+          .toArray();
+
+        // Fetch names from biodata collection
+        const conversationsWithNames = await Promise.all(
+          conversations.map(async (conv) => {
+            const senderBiodata = await biodataCollection.findOne({ contactEmail: conv.senderId });
+            const receiverBiodata = await biodataCollection.findOne({ contactEmail: conv.receiverId });
+
+            return {
+              ...conv,
+              senderName: senderBiodata?.name || conv.senderId,
+              receiverName: receiverBiodata?.name || conv.receiverId,
+            };
+          })
+        );
+
+        res.status(200).json({ success: true, data: conversationsWithNames });
+      } catch (error) {
+        console.error("Error fetching conversations:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // ==================== NOTIFICATION SYSTEM ROUTES ====================
+
+    // GET: Get user notifications
+    app.get("/api/notifications/:userId", verifyToken, async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const notifications = await notificationsCollection
+          .find({ userId })
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .toArray();
+
+        res.status(200).json({ success: true, data: notifications });
+      } catch (error) {
+        console.error("Error fetching notifications:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // POST: Create notification (internal use)
+    app.post("/api/notifications", verifyToken, async (req, res) => {
+      try {
+        const { userId, type, message, link } = req.body;
+
+        const notification = {
+          userId,
+          type,
+          message,
+          link: link || null,
+          isRead: false,
+          createdAt: new Date(),
+        };
+
+        const result = await notificationsCollection.insertOne(notification);
+        res.status(201).json({ success: true, data: result });
+      } catch (error) {
+        console.error("Error creating notification:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // PATCH: Mark notification as read
+    app.patch("/api/notifications/:id/read", verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await notificationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isRead: true } }
+        );
+
+        res.status(200).json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // DELETE: Delete notification
+    app.delete("/api/notifications/:id", verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await notificationsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        res.status(200).json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error deleting notification:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // ==================== SAVED SEARCHES ROUTES ====================
+
+    // POST: Save search criteria
+    app.post("/api/saved-searches", verifyToken, async (req, res) => {
+      try {
+        const { userId, searchName, criteria } = req.body;
+
+        const savedSearch = {
+          userId,
+          searchName,
+          criteria,
+          createdAt: new Date(),
+        };
+
+        const result = await savedSearchesCollection.insertOne(savedSearch);
+        res.status(201).json({ success: true, data: result });
+      } catch (error) {
+        console.error("Error saving search:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET: Get user's saved searches
+    app.get("/api/saved-searches/:userId", verifyToken, async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const searches = await savedSearchesCollection.find({ userId }).toArray();
+
+        res.status(200).json({ success: true, data: searches });
+      } catch (error) {
+        console.error("Error fetching saved searches:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // DELETE: Delete saved search
+    app.delete("/api/saved-searches/:id", verifyToken, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await savedSearchesCollection.deleteOne({ _id: new ObjectId(id) });
+
+        res.status(200).json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error deleting saved search:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // ==================== BLOG ROUTES ====================
+
+    // GET: Get all published blog posts
+    app.get("/api/blog/posts", async (req, res) => {
+      try {
+        const { page = 1, limit = 10, category } = req.query;
+        const query = { status: "published" };
+
+        if (category) {
+          query.category = category;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const total = await blogPostsCollection.countDocuments(query);
+        const posts = await blogPostsCollection
+          .find(query)
+          .sort({ publishedAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.status(200).json({
+          success: true,
+          data: posts,
+          total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Error fetching blog posts:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET: Get single blog post by slug
+    app.get("/api/blog/posts/:slug", async (req, res) => {
+      try {
+        const { slug } = req.params;
+        const post = await blogPostsCollection.findOne({ slug, status: "published" });
+
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+
+        res.status(200).json({ success: true, data: post });
+      } catch (error) {
+        console.error("Error fetching blog post:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // POST: Create blog post (admin only)
+    app.post("/api/blog/posts", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { title, slug, content, author, category, tags, featuredImage } = req.body;
+
+        const post = {
+          title,
+          slug,
+          content,
+          author,
+          category,
+          tags: tags || [],
+          featuredImage,
+          status: "draft",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await blogPostsCollection.insertOne(post);
+        res.status(201).json({ success: true, data: result });
+      } catch (error) {
+        console.error("Error creating blog post:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // PATCH: Update blog post (admin only)
+    app.patch("/api/blog/posts/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status, ...updateData } = req.body;
+
+        const update = {
+          ...updateData,
+          updatedAt: new Date(),
+        };
+
+        if (status === "published" && !updateData.publishedAt) {
+          update.publishedAt = new Date();
+          update.status = "published";
+        }
+
+        const result = await blogPostsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: update }
+        );
+
+        res.status(200).json({ success: true, modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Error updating blog post:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // DELETE: Delete blog post (admin only)
+    app.delete("/api/blog/posts/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await blogPostsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        res.status(200).json({ success: true, deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error("Error deleting blog post:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // ==================== PROFILE VERIFICATION ROUTES ====================
+
+    // POST: Submit verification request
+    app.post("/api/verification/request", verifyToken, async (req, res) => {
+      try {
+        const { userId, documents } = req.body;
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          {
+            $set: {
+              verificationStatus: "pending",
+              verificationDocuments: documents,
+              verificationRequestedAt: new Date(),
+            },
+          }
+        );
+
+        res.status(200).json({ success: true, message: "Verification request submitted" });
+      } catch (error) {
+        console.error("Error submitting verification request:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // GET: Check verification status
+    app.get("/api/verification/status/:userId", verifyToken, async (req, res) => {
+      try {
+        const { userId } = req.params;
+        const user = await usersCollection.findOne(
+          { _id: new ObjectId(userId) },
+          { projection: { verificationStatus: 1, verificationDocuments: 1 } }
+        );
+
+        res.status(200).json({
+          success: true,
+          data: {
+            status: user?.verificationStatus || "unverified",
+            documents: user?.verificationDocuments || [],
+          },
+        });
+      } catch (error) {
+        console.error("Error checking verification status:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // PATCH: Approve verification (admin only)
+    app.patch("/api/verification/approve/:userId", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { userId } = req.params;
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          {
+            $set: {
+              verificationStatus: "verified",
+              verifiedAt: new Date(),
+            },
+          }
+        );
+
+        res.status(200).json({ success: true, message: "User verified successfully" });
+      } catch (error) {
+        console.error("Error approving verification:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
     // console.log(
@@ -1192,9 +1617,102 @@ async function run() {
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Server is  brother!");
+  res.send("Server is running brother!");
 });
 
-app.listen(port, () => {
+// Socket.IO Configuration
+const connectedUsers = new Map(); // Track connected users: email -> socketId
+
+io.on("connection", (socket) => {
+  console.log("✅ User connected:", socket.id);
+
+  // User joins with their email
+  socket.on("join", (userEmail) => {
+    connectedUsers.set(userEmail, socket.id);
+    socket.userEmail = userEmail;
+    console.log(`👤 ${userEmail} joined with socket ${socket.id}`);
+  });
+
+  // Send message
+  socket.on("sendMessage", async (messageData) => {
+    try {
+      const { senderId, receiverId, message, conversationId } = messageData;
+
+      // Save message to database
+      const newMessage = {
+        senderId,
+        receiverId,
+        message,
+        conversationId,
+        timestamp: new Date(),
+        isRead: false,
+      };
+
+      const result = await client
+        .db("matrimony")
+        .collection("messages")
+        .insertOne(newMessage);
+
+      const savedMessage = { ...newMessage, _id: result.insertedId };
+
+      // Send to receiver if online
+      const receiverSocketId = connectedUsers.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("newMessage", savedMessage);
+      }
+
+      // Send back to sender
+      socket.emit("messageSent", savedMessage);
+
+      // Create notification for receiver
+      await client.db("matrimony").collection("notifications").insertOne({
+        userId: receiverId,
+        type: "message",
+        message: `New message from ${senderId}`,
+        link: "/dashboard/messages",
+        isRead: false,
+        createdAt: new Date(),
+      });
+
+      // Send notification to receiver if online
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("newNotification", {
+          type: "message",
+          message: `New message from ${senderId}`,
+        });
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      socket.emit("messageError", { error: "Failed to send message" });
+    }
+  });
+
+  // Typing indicator
+  socket.on("typing", ({ conversationId, receiverId }) => {
+    const receiverSocketId = connectedUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("userTyping", { conversationId });
+    }
+  });
+
+  socket.on("stopTyping", ({ conversationId, receiverId }) => {
+    const receiverSocketId = connectedUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("userStoppedTyping", { conversationId });
+    }
+  });
+
+  // Disconnect
+  socket.on("disconnect", () => {
+    if (socket.userEmail) {
+      connectedUsers.delete(socket.userEmail);
+      console.log(`👋 ${socket.userEmail} disconnected`);
+    }
+    console.log("❌ User disconnected:", socket.id);
+  });
+});
+
+server.listen(port, () => {
   console.log(`🚀 Server is running at http://localhost:${port}`);
+  console.log(`🔌 Socket.IO is ready for real-time messaging`);
 });
